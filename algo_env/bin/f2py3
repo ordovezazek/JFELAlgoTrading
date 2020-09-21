@@ -1,4 +1,6 @@
-#!/Users/zekieordoveza/Desktop/JFELAlgoTrading/algo_env/bin/python3
+#!/bin/sh
+'''exec' "/Users/zekieordoveza/Desktop/JFELAlgoTrading /algo_env/bin/python" "$0" "$@"
+' '''
 # -*- coding: utf-8 -*-
 import re
 import sys
