@@ -1,6 +1,6 @@
 #%% ========================================================================================
 
-# TEST CELL
+# TEST & REF CELL
 
 import datetime as dt
 
@@ -25,10 +25,10 @@ end = dt.datetime(2016,12,31)
 # df = web.DataReader('TSLA', 'yahoo', start, end)
 
 # #create csv
-# df.to_csv('tsla.csv') 
+# df.to_csv('READ_WRITE/tsla.csv') 
 
 #read from csv
-df = pd.read_csv('tsla.csv', parse_dates=True, index_col=0)
+df = pd.read_csv('READ_WRITE/tsla.csv', parse_dates=True, index_col=0)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ## _Algo_
@@ -73,58 +73,115 @@ plt.show()
 
 # %% ========================================================================================
 
-# read from the S&P 500
-import datetime as dt
-import os
+# S&P 500 EXPERIMENT
 
 import pandas as pd
 import pandas_datareader.data as web
 
+import matplotlib.pyplot as plt
+from matplotlib import style
+
+import datetime as dt
+import os
+import numpy as np
 import bs4 as bs
 import pickle #easily save list of companies
 import requests
 
-#Scrape data off wikipedia with Beautiful Soup
+style.use('ggplot')
+
+# Scrape data off wikipedia with Beautiful Soup
 def save_sp500_tickers():
     resp = requests.get('https://en.wikipedia.org/wiki/List_of_S%26P_500_companies')
     soup = bs.BeautifulSoup(resp.text, "lxml") #turns source code into a BeautifulSoup object 
     table = soup.find('table', {'class':'wikitable sortable'})
+
     tickers = []
+    
     for row in table.findAll('tr')[1:]: #each row, after the header row
         ticker = row.findAll('td')[0].text #first td becomes soup object
-        tickers.append(ticker)
+        tickers.append(ticker.strip())  #remove "\n"
 
     with open("sp500tickers.pickle", "wb") as f:    #serializes Python objects
         pickle.dump(tickers, f) 
 
-    print(tickers)
+    # print(tickers)
     return tickers
 
-# save_sp500_tickers() # use only during first succesful run
-
-def get_data_from_yahoo(reload_sp500=False):
+# Get full data from Yahoo based on saved pickle 
+def get_data_from_yahoo(reload_sp500=False): #change condition if data collection was edited
     if reload_sp500:    
         tickers = save_sp500_tickers()
     else:
         with open("sp500tickers.pickle", "rb") as f: #read serialized objects
             tickers = pickle.load(f)
 
-    if not os.path.exists('stock_dfs'): #create directory to save dataset
+    if not os.path.exists('stock_dfs'): #check for directory to save dataset 
         os.makedirs('stock_dfs')
 
     start = dt.datetime(2000,1,1)
     end = dt.datetime.now()
 
-    for ticker in tickers:
-        if not os.path.exists('stock_dfs/{}.csv'.format(ticker)): # just in case your connection breaks, we'd like to save our progress!
-            df = web.DataReader(ticker, 'yahoo', start, end)
-            # df.reset_index(inplace=True)
-            # df.set_index("Date", inplace=True)
-            # df = df.drop("Symbol", axis=1)
-            df.to_csv('stock_dfs/{}.csv'.format(ticker)) #add each ticker to dataset directory
-        else:
-            print('Already have {}'.format(ticker))
+    for ticker in tickers[0:19]:
+        try:
+            if not os.path.exists('stock_dfs/{}.csv'.format(ticker)): # just in case your connection breaks, we'd like to save our progress!
+                df = web.DataReader(ticker, 'yahoo', start, end)
+                # df.reset_index(inplace=True)
+                # df.set_index("Date", inplace=True)
+                # df = df.drop("Symbol", axis=1)
+                df.to_csv('READ_WRITE/stock_dfs/{}.csv'.format(ticker)) #add each ticker to dataset directory
+            else:
+                print('Already have {}'.format(ticker))
 
-get_data_from_yahoo()
+            print(ticker + ' added')
+
+        except:
+            print(ticker + ' skipped')
+            continue
+
+# Add data into an organized data frame
+def compile_data():
+    with open("sp500tickers.pickle","rb") as f:
+        tickers = pickle.load(f)[0:19]
+
+    main_df = pd.DataFrame()    #initialize an empty dataframe
+
+    for count,ticker in enumerate(tickers):
+        df = pd.read_csv('READ_WRITE/stock_dfs/{}.csv'.format(ticker))
+        df.set_index('Date', inplace=True)
+        # df['{}_HL_pct_diff'.format(ticker)] = (df['High'] - df['Low']) / df['Low']    #% diff of high low
+        # df['{}_daily_pct_chng'.format(ticker)] = (df['Close'] - df['Open']) / df['Open']  #daily % change
+
+        df.rename(columns={'Adj Close':ticker}, inplace=True)   #rename Adj Close column to ticker name
+        df.drop(['Open','High','Low','Close','Volume'],1,inplace=True)  #drop not needed columns
+
+        if main_df.empty:   #use current df if main_df is still empty
+            main_df = df
+        else:              #otherwise join dfs
+            main_df = main_df.join(df, how='outer')
+
+        if count % 10 == 0: #tracker
+            print(count)
+
+    # print(main_df.tail())
+    main_df.to_csv('READ_WRITE/sp500_joined_closes.csv')
+
+# VIsualization
+def visualize_data():
+    df = pd.read_csv('READ_WRITE/sp500_joined_closes.csv')
+
+    df_corr = df.corr() #determine the correlation of every column to every column
+    print(df_corr.head())
+
+
+
+# exe:
+# save_sp500_tickers()
+# get_data_from_yahoo()
+# compile_data()
+visualize_data()
+
+# TO DO NOTES:
+
 
 # %% ========================================================================================
