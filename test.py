@@ -166,14 +166,41 @@ def compile_data():
     # print(main_df.tail())
     main_df.to_csv('READ_WRITE/sp500_joined_closes.csv')
 
-# VIsualization
+# Data Manipulation & Visualization
 def visualize_data():
     df = pd.read_csv('READ_WRITE/sp500_joined_closes.csv')
 
-    df_corr = df.corr() #determine the correlation of every column to every column
-    print(df_corr.head())
+    #data manip
+    df_corr = df.corr() #determine the correlation of every column with every other column
+    df_corr.to_csv('READ_WRITE/sp500corr.csv') # save to local csv
 
+    #viz
+    data1 = df_corr.values  #get numpy array of just the values
+    fig1 = plt.figure()
+    ax1 = fig1.add_subplot(111) #1x1-plot1
 
+    heatmap1 = ax1.pcolor(data1, cmap=plt.cm.RdYlGn)    #create the heatmap
+    fig1.colorbar(heatmap1)                             #side-bar for color scale
+    ax1.set_xticks(np.arange(data1.shape[1]) + 0.5, minor=False)    #set ticks for company recognition
+    ax1.set_yticks(np.arange(data1.shape[0]) + 0.5, minor=False)
+
+    ax1.invert_yaxis()                                  #remove top gap and place xaxis at the top for readability
+    ax1.xaxis.tick_top()
+
+    column_labels = df_corr.columns                     # set labels
+    row_labels = df_corr.index
+    ax1.set_xticklabels(column_labels)                  
+    ax1.set_yticklabels(row_labels)
+
+    plt.xticks(rotation=90)                             # rotate ticks for readability
+    heatmap1.set_clim(-1,1)                             # set color limit in the -1:1 range for heatmap
+    plt.tight_layout()                                  # clean up
+
+    plt.savefig("Visualizations/s&p500_correlations.png", dpi = (300))       # save to png
+    plt.show()
+
+    # df['MMM'].plot()
+    # plt.show()
 
 # exe:
 # save_sp500_tickers()
@@ -182,6 +209,6 @@ def visualize_data():
 visualize_data()
 
 # TO DO NOTES:
-
+# 1.) get full correlation instead of just 20 companies
 
 # %% ========================================================================================
