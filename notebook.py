@@ -73,7 +73,7 @@ plt.show()
 
 # %% ========================================================================================
 
-# S&P 500 EXPERIMENT
+# S&P 500 Data Collection ~ Correlation Visualization
 
 import pandas as pd
 import pandas_datareader.data as web
@@ -213,7 +213,9 @@ visualize_data()
 
 # %% ========================================================================================
 
-# Machine Learning Experiment
+# S&P 500 Machine Learning Experiment
+
+from statistics import mean
 
 import pandas as pd
 import pandas_datareader.data as web
@@ -230,7 +232,12 @@ import requests
 
 from collections import Counter # show the distributions of classes both in the dataset and in the algorithm's predictions
 
-# Pre-process data to be used for machine learning 
+from sklearn import svm, neighbors    #sklearn: machine learning framework - [0]: Support Vector Machine - [1]: K Nearest Neighbors
+# from sklearn.model_selection import cross_validate  # [0]: create shuffled training and testing samples 
+from sklearn.model_selection import train_test_split # [0]: create shuffled training and testing samples 
+from sklearn.ensemble import VotingClassifier, RandomForestClassifier # [0]: give classifiers the ability to vote - [1]: classifier
+
+# Pre-process data for ML
 def process_data_for_labels(ticker):
     hm_days = 7 #days into the future
     df = pd.read_csv('READ_WRITE/sp500_joined_closes.csv', index_col=0)    #read in the data for the close prices for all companies
@@ -242,15 +249,14 @@ def process_data_for_labels(ticker):
 
     df.fillna(0, inplace=True)
     return tickers, df
-     
+
+# Crate FEATURESET & LABELS for machine learning algorithm:
 
 # Business Rules:
 # if the price rises more than 2% in the next 7 days, we're going to say that's a buy. 
 # If it drops more than 2% in the next 7 days, that's a sell. If it doesn't do either of those, 
 # then it's not moving enough, and we're going to just hold whatever our position is. 
 # If we have shares in that company, we do nothing, we keep our position.
-
-# Algo:
 
 # ~ LABELS
 def buy_sell_hold(*args):   # needed to map to dataframe column | using args to take any number of columns 
@@ -297,8 +303,43 @@ def extract_featuresets(ticker):
 
     return X, y, df
 
+# Machine Learning
+def do_ml(ticker):
+    X, y ,df = extract_featuresets(ticker)
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25)  # shuffle data and create training and testing samples
+    clf = VotingClassifier([('lsvc', svm.LinearSVC()),
+                            ('knn', neighbors.KNeighborsClassifier()),
+                            ('rfor', RandomForestClassifier())])
+    clf.fit(X_train, y_train)   #take Xdata:featuresets and fit to ydata:labels
+    confidence = clf.score(X_test, y_test)  # get % accuracy (1.0 is 100% and 0.1 is 10% accurate)
+
+    print('accuracy:',confidence)
+    predictions = clf.predict(X_test)   # X_test data prediction
+    print('predicted class counts:',Counter(predictions))   # output distribution
+    
+    return confidence
+    
 # process_data_for_labels('MMM')
-extract_featuresets('MMM')
+# extract_featuresets('MMM')
+do_ml('ABT')
+
+#run against all tickers
+# with open("sp500tickers.pickle","rb") as f:
+#     tickers = pickle.load(f)
+
+# accuracies = []
+# for count,ticker in enumerate(tickers):
+
+#     if count%10==0:
+#         print(count)
+
+#     accuracy = do_ml(ticker)
+#     accuracies.append(accuracy)
+#     print("{} accuracy: {}. Average accuracy:{}".format(ticker,accuracy,mean(accuracies)))
+
 
 # %%
+
+
 
