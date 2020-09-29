@@ -341,5 +341,155 @@ do_ml('ABT')
 
 # %%
 
+# PSEI Experiment
+
+from fastquant import get_pse_data
+
+import pandas as pd
+import pandas_datareader.data as web
+
+import matplotlib.pyplot as plt
+from matplotlib import style
+
+import datetime as dt
+import os
+import numpy as np
+import bs4 as bs
+import pickle #easily save list of companies
+import requests
+
+import traceback
+
+style.use('ggplot')
+
+def save_psei_tickers():
+    resp = requests.get('https://www.pesobility.com/stock') # insert data source link
+    soup = bs.BeautifulSoup(resp.text, "lxml") #turns source code into a BeautifulSoup object 
+    table = soup.find(text="Symbol").find_parent("table")
+
+    tickers = []
+    
+    for row in table.findAll('tr')[0:]: #each row, after the header row
+        ticker = row.findAll('td')[0].text #first td becomes soup object
+        # print(ticker)
+        tickers.append(ticker.strip())  #remove "\n"
+
+    with open("READ_WRITE/PSEItickers.pickle", "wb") as f:    #serializes Python objects
+        pickle.dump(tickers, f) 
+
+    # print(tickers)
+    return tickers
+
+# Get full data from fastquant based on saved pickle 
+def get_data_from_fastquant(reload_psei=False): #change condition if data collection was edited (IPO etc.)
+    if reload_psei:    
+        tickers = save_psei_tickers()
+    else:
+        with open("READ_WRITE/PSEItickers.pickle", "rb") as f: #read serialized objects
+            tickers = pickle.load(f)
+
+    if not os.path.exists('READ_WRITE/psei_stock_dfs'): #check for directory to save dataset 
+        os.makedirs('READ_WRITE/psei_stock_dfs')
+
+    start = dt.datetime(2020,3,1)   #data period to be analyzed
+    end = dt.datetime.now()
+
+    for ticker in tickers:
+        try:
+            if not os.path.exists('READ_WRITE/psei_stock_dfs/{}.csv'.format(ticker)): # just in case your connection breaks, we'd like to save our progress!
+                df = get_pse_data(ticker, str(start.date()), str(end.date()))
+                # df.reset_index(inplace=True)
+                # df.set_index("Date", inplace=True)
+                # df = df.drop("Symbol", axis=1)
+                df.to_csv('READ_WRITE/psei_stock_dfs/{}.csv'.format(ticker)) #add each ticker to dataset directory
+                print(ticker + ' added')
+            else:
+                print('Already have {}'.format(ticker))
+
+        except Exception as err:
+            print(ticker + ' skipped')
+            print(err)
+            # traceback.print_exc()
+
+            # if err == """'NoneType' object has no attribute 'empty'""":
+            #     continue
+            # elif err == """'NoneType' object has no attribute 'to_csv'""":
+            #     continue
+            # else:
+            #   break
+            continue
+
+# Add data into an organized data frame
+def compile_data():
+    with open("READ_WRITE/PSEItickers.pickle","rb") as f:
+        tickers = pickle.load(f)
+
+    main_df = pd.DataFrame()    #initialize an empty dataframe
+
+    for count,ticker in enumerate(tickers):
+        try:
+            df = pd.read_csv('READ_WRITE/psei_stock_dfs/{}.csv'.format(ticker))
+
+            df.set_index('dt', inplace=True)
+            # df['{}_HL_pct_diff'.format(ticker)] = (df['High'] - df['Low']) / df['Low']    #% diff of high low
+            # df['{}_daily_pct_chng'.format(ticker)] = (df['Close'] - df['Open']) / df['Open']  #daily % change
+
+            df.rename(columns={'close':ticker}, inplace=True)   #rename Adj Close column to ticker name
+            df.drop(['open','high','low','value','volume'],1,inplace=True)  #drop not needed columns
+
+            if main_df.empty:   #use current df if main_df is still empty
+                main_df = df
+            else:              #otherwise join dfs
+                main_df = main_df.join(df, how='outer')
+
+            if count % 10 == 0: #tracker
+                print(count)
+
+        except Exception as err:
+            print(err)
+            continue
+        
+
+    # print(main_df.tail())
+    main_df.to_csv('READ_WRITE/psei_joined_closes.csv')
 
 
+def visualize_data():
+    df = pd.read_csv('READ_WRITE/psei_joined_closes.csv')
+
+    #data manip
+    df_corr = df.corr() #determine the correlation of every column with every other column
+    df_corr.to_csv('READ_WRITE/PSEIcorr.csv') # save to local csv
+
+    #viz
+    data1 = df_corr.values  #get numpy array of just the values
+    fig1 = plt.figure()
+    ax1 = fig1.add_subplot(111) #1x1-plot1
+
+    heatmap1 = ax1.pcolor(data1, cmap=plt.cm.RdYlGn)    #create the heatmap
+    fig1.colorbar(heatmap1)                             #side-bar for color scale
+    ax1.set_xticks(np.arange(data1.shape[1]) + 0.5, minor=False)    #set ticks for company recognition
+    ax1.set_yticks(np.arange(data1.shape[0]) + 0.5, minor=False)
+
+    ax1.invert_yaxis()                                  #remove top gap and place xaxis at the top for readability
+    ax1.xaxis.tick_top()
+
+    column_labels = df_corr.columns                     # set labels
+    row_labels = df_corr.index
+    ax1.set_xticklabels(column_labels)                  
+    ax1.set_yticklabels(row_labels)
+
+    plt.xticks(rotation=90)                             # rotate ticks for readability
+    heatmap1.set_clim(-1,1)                             # set color limit in the -1:1 range for heatmap
+    plt.tight_layout()                                  # clean up
+
+    plt.savefig("Visualizations/PSEI_correlations.png", dpi = (300))       # save to png
+    plt.show()
+
+    # df['MMM'].plot()
+    # plt.show()
+
+visualize_data()
+
+
+# %%
