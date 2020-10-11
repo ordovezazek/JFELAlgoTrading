@@ -250,7 +250,7 @@ def process_data_for_labels(ticker):
     df.fillna(0, inplace=True)
     return tickers, df
 
-# Crate FEATURESET & LABELS for machine learning algorithm:
+# Create FEATURESET & LABELS for machine learning algorithm:
 
 # Business Rules:
 # if the price rises more than 2% in the next 7 days, we're going to say that's a buy. 
@@ -339,7 +339,7 @@ do_ml('ABT')
 #     print("{} accuracy: {}. Average accuracy:{}".format(ticker,accuracy,mean(accuracies)))
 
 
-# %%
+# %% ========================================================================================
 
 # PSEI Experiment
 
@@ -428,7 +428,7 @@ def compile_data():
 
     for count,ticker in enumerate(tickers):
         try:
-            df = pd.read_csv('READ_WRITE/psei_stock_dfs/{}.csv'.format(ticker))
+            df = pd.read_csv('READ_WRITE/psei_stock_dfs/03-20_to_09-20/{}.csv'.format(ticker))
 
             df.set_index('dt', inplace=True)
             # df['{}_HL_pct_diff'.format(ticker)] = (df['High'] - df['Low']) / df['Low']    #% diff of high low
@@ -451,15 +451,15 @@ def compile_data():
         
 
     # print(main_df.tail())
-    main_df.to_csv('READ_WRITE/psei_joined_closes.csv')
+    main_df.to_csv('READ_WRITE/psei_joined_closes_quarantine.csv')
 
-
+#Visualization for psei stock correlations during the quarantine period
 def visualize_data():
-    df = pd.read_csv('READ_WRITE/psei_joined_closes.csv')
+    df = pd.read_csv('READ_WRITE/psei_joined_closes_quarantine.csv')
 
     #data manip
     df_corr = df.corr() #determine the correlation of every column with every other column
-    df_corr.to_csv('READ_WRITE/PSEIcorr.csv') # save to local csv
+    df_corr.to_csv('READ_WRITE/PSEIcorrQ.csv') # save to local csv
 
     #viz
     data1 = df_corr.values  #get numpy array of just the values
@@ -483,13 +483,118 @@ def visualize_data():
     heatmap1.set_clim(-1,1)                             # set color limit in the -1:1 range for heatmap
     plt.tight_layout()                                  # clean up
 
-    plt.savefig("Visualizations/PSEI_correlations.png", dpi = (300))       # save to png
+    plt.savefig("Visualizations/PSEI_correlations_Q.png", dpi = (300))       # save to png
     plt.show()
 
     # df['MMM'].plot()
     # plt.show()
 
-visualize_data()
+# visualize_data()
 
 
-# %%
+# %% ========================================================================================
+
+# PSE Machine Learning Experiment
+
+from statistics import mean
+
+import pandas as pd
+import pandas_datareader.data as web
+
+import matplotlib.pyplot as plt
+from matplotlib import style
+
+import datetime as dt
+import os
+import numpy as np
+import bs4 as bs
+import pickle #easily save list of companies
+import requests
+
+from collections import Counter # show the distributions of classes both in the dataset and in the algorithm's predictions
+
+from sklearn import svm, neighbors    #sklearn: machine learning framework - [0]: Support Vector Machine - [1]: K Nearest Neighbors
+# from sklearn.model_selection import cross_validate  # [0]: create shuffled training and testing samples 
+from sklearn.model_selection import train_test_split # [0]: create shuffled training and testing samples 
+from sklearn.ensemble import VotingClassifier, RandomForestClassifier # [0]: give classifiers the ability to vote - [1]: classifier
+
+# Pre-process data for ML
+def process_data_for_labels(ticker):
+    hm_days = 7 #days into the future
+    df = pd.read_csv('READ_WRITE/psei_joined_closes_quarantine.csv', index_col=0)    #read in the data for the close prices for all companies
+    tickers = df.columns.values.tolist()
+    df.fillna(0, inplace=True)    #replace Na with 0
+
+    for i in range(1, hm_days+1):
+        df['{}_{}d'.format(ticker, i)] = (df[ticker].shift(-i) - df[ticker]) / df[ticker]   #.shift will shift a column up or down ~ % change
+
+    df.fillna(0, inplace=True)
+    return tickers, df, hm_days
+
+# Create FEATURESET & LABELS for machine learning algorithm:
+
+# Business Rules:
+# if the price rises more than 2% in the next 7 days, we're going to say that's a buy. 
+# If it drops more than 2% in the next 7 days, that's a sell. If it doesn't do either of those, 
+# then it's not moving enough, and we're going to just hold whatever our position is. 
+# If we have shares in that company, we do nothing, we keep our position.
+
+# ~ LABELS
+def buy_sell_hold(*args):   # needed to map to dataframe column | using args to take any number of columns 
+    cols = [c for c in args]    # args will be those future price change columns
+    requirement = 0.02
+    for col in cols:        # A -1 as sell, 0 as hold, and 1 as a buy
+        if col > requirement:
+            return 1
+        elif col < requirement:
+            return -1
+    return 0    
+# Caveat: price might go up 2%, then suddenly fall 2% vice versa etc. which algo does not account for
+
+def extract_featuresets(ticker):
+    tickers, df, hm_days = process_data_for_labels(ticker)   #process data
+
+    # create "target" column ~ LABELS 
+    df['{}_target'.format(ticker)] = list(map(buy_sell_hold, *[df['{}_{}d'.format(ticker, i)]for i in range(1, hm_days+1)]))
+
+    # get the distribution
+    vals = df['{}_target'.format(ticker)].values.tolist()   
+    str_vals = [str(i) for i in vals]
+    print('Data spread:',Counter(str_vals))
+
+    # Clean up data
+    df.fillna(0, inplace=True)  #replace totally missing data with 0
+    df = df.replace([np.inf, -np.inf], np.nan)  # convert infinite values to NaNs and drop
+    df.dropna(inplace=True)
+
+    # Get FEATURES : % change of every company for that day
+    df_vals = df[[ticker for ticker in tickers]].pct_change()
+    df_vals = df_vals.replace([np.inf, -np.inf], 0)
+    df_vals.fillna(0, inplace=True)
+
+    X = df_vals.values                          # FEATURESETS
+    y = df['{}_target'.format(ticker)].values   # LABELS
+
+    return X, y, df
+
+# Machine Learning
+def do_ml(ticker):
+    X, y ,df = extract_featuresets(ticker)
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.25)  # shuffle data and create training and testing samples
+    clf = VotingClassifier([('lsvc', svm.LinearSVC()),
+                            ('knn', neighbors.KNeighborsClassifier()),
+                            ('rfor', RandomForestClassifier())])
+    clf.fit(X_train, y_train)   #take Xdata:featuresets and fit to ydata:labels
+    confidence = clf.score(X_test, y_test)  # get % accuracy (1.0 is 100% and 0.1 is 10% accurate)
+
+    print('accuracy:',confidence)
+    predictions = clf.predict(X_test)   # X_test data prediction
+    print('predicted class counts:',Counter(predictions))   # output distribution
+    
+    return confidence
+    
+do_ml('2GO')
+
+# %% ========================================================================================
+
